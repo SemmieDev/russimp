@@ -56,6 +56,12 @@ pub struct Texture {
     pub data: DataContent,
 }
 
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct ExternalTexture {
+    pub filename: String
+}
+
 #[repr(C, packed)]
 #[derive(Derivative, Copy, Clone)]
 #[derivative(Debug)]
@@ -93,6 +99,7 @@ pub(crate) fn generate_materials(scene: &aiScene) -> Russult<Vec<Material>> {
 
     for (mat_index, &mat) in materials.iter().enumerate() {
         let mut material_textures: HashMap<TextureType, Rc<RefCell<Texture>>> = HashMap::new();
+        let mut external_textures: HashMap<TextureType, Rc<RefCell<Vec<ExternalTexture>>>> = HashMap::new();
 
         for tex_type in TextureType::iter() {
             let material_filenames = get_textures_of_type_from_material(mat, tex_type)?;
@@ -112,6 +119,16 @@ pub(crate) fn generate_materials(scene: &aiScene) -> Russult<Vec<Material>> {
                             converted_textures.get(&embedded_texture).unwrap().clone(),
                         );
                     }
+                } else {
+                    if !external_textures.contains_key(&tex_type) {
+                        external_textures.insert(tex_type, Rc::new(RefCell::new(Vec::new())));
+                    }
+
+                    let external_textures_vec = external_textures.get(&tex_type).unwrap();
+
+                    external_textures_vec.borrow_mut().push(ExternalTexture {
+                        filename: material_filename
+                    });
                 }
             }
         }
@@ -119,6 +136,7 @@ pub(crate) fn generate_materials(scene: &aiScene) -> Russult<Vec<Material>> {
         result.push(Material::new(
             properties[mat_index].clone(),
             material_textures,
+            external_textures
         ));
     }
 
@@ -262,16 +280,19 @@ fn get_properties(material: &aiMaterial) -> Vec<MaterialProperty> {
 pub struct Material {
     pub properties: Vec<MaterialProperty>,
     pub textures: HashMap<TextureType, Rc<RefCell<Texture>>>,
+    pub external_textures: HashMap<TextureType, Rc<RefCell<Vec<ExternalTexture>>>>
 }
 
 impl Material {
     fn new(
         properties: Vec<MaterialProperty>,
         textures: HashMap<TextureType, Rc<RefCell<Texture>>>,
+        external_textures: HashMap<TextureType, Rc<RefCell<Vec<ExternalTexture>>>>
     ) -> Self {
         Self {
             properties,
             textures,
+            external_textures
         }
     }
 }
@@ -506,12 +527,12 @@ impl MaterialProperty {
 
 #[cfg(test)]
 mod test {
-    const FILENAME_PROPERTY: &str = "$tex.file";
-
     use crate::{
         material::{DataContent, MaterialProperty, PropertyTypeInfo, TextureType},
         utils,
     };
+
+    const FILENAME_PROPERTY: &str = "$tex.file";
 
     #[test]
     fn semantic_unwrap_panicking() {
